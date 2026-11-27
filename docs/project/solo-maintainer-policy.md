@@ -4,6 +4,15 @@
 **Default branch:** `main`  
 **Maintainer model:** one owner; no external collaborator or reviewer dependency.
 
+## Windows, WSL2, and production flow
+
+- Codex runs on the Windows host as the authoring and control surface.
+- Keep one dedicated project working tree in Ubuntu WSL2's ext4 filesystem, separate from the pinned upstream-only checkout. Open the WSL-backed project tree to the Windows editing workflow through WSL/VS Code integration; do not maintain a second divergent source copy under `D:\Eurybia`.
+- Run Linux CMake/Ninja builds, CTest, and local server checks inside WSL2.
+- The current `/home/ajorge/projects/trinitycore/source` checkout follows upstream TrinityCore 3.3.5 and remains the upstream baseline. Do not use it as the project fork working tree. A dedicated local working tree for the project PR has not yet been created.
+- `D:\Eurybia` stores project design, documentation, tools, proofs, and downloaded release artifacts.
+- Push source changes to GitHub through topic branches and pull requests. GitHub Actions builds the release artifact. After isolated staging and explicit owner authorization, deploy the same verified artifact digest to the split Authserver and Worldserver hosts. Production receives the verified artifact and approved configuration/schema operations, never source-editor synchronization.
+
 ## Pull request workflow
 
 Use a short-lived topic branch and open a pull request for each project change. The pull request is the audit record and CI entry point, even when its author is also the only maintainer. The owner reviews the diff, checks the evidence and may merge their own pull request. Required approving reviews: **0**.
