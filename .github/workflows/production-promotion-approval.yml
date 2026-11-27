@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
-      - name: Check out protected main
+      - name: Check out main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -53,20 +53,9 @@ jobs:
           [[ "$STAGING_PROOF_PATH" =~ ^docs/project/staging-acceptance/[A-Za-z0-9][A-Za-z0-9._-]*\.md$ ]] || { echo "Staging proof must be a Markdown file under docs/project/staging-acceptance/." >&2; exit 1; }
           [[ "$CONFIRMATION" == "AUTHORIZE $RELEASE_TAG $PACKAGE_SHA256" ]] || { echo "The typed owner confirmation does not match the selected release and digest." >&2; exit 1; }
 
-          ENVIRONMENT_JSON="$RUNNER_TEMP/production-approval-environment.json"
-          curl --fail --silent --show-error --location \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/environments/production-approval" > "$ENVIRONMENT_JSON"
-          jq -e --arg owner "AJorge95" '
-            .deployment_branch_policy.protected_branches == true
-            and .deployment_branch_policy.custom_branch_policies == false
-            and ([.protection_rules[]
-              | select(.type == "required_reviewers")
-              | select(.prevent_self_review == false)
-              | select(any(.reviewers[]; .reviewer.login == $owner))
-            ] | length == 1)
-          ' "$ENVIRONMENT_JSON" >/dev/null || { echo "Configure production-approval with AJorge95 as its required reviewer, allow owner self-review, and restrict it to protected branches." >&2; exit 1; }
+          # Authorization is the owner's explicit workflow_dispatch plus the
+          # exact typed release/digest confirmation checked above. This gate
+          # does not depend on GitHub Environments or repository visibility.
 
           git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           SOURCE_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
@@ -108,7 +97,7 @@ jobs:
             echo "- Package SHA-256: $PACKAGE_SHA256"
             echo "- Staging acceptance: $STAGING_PROOF_PATH"
             echo "- Staging proof SHA-256: $STAGING_PROOF_SHA256"
-            echo "- Production approval environment: owner reviewer and protected-branch policy verified"
+            echo "- Owner authorization: owner-initiated dispatch and exact typed confirmation verified"
             echo
             echo "This workflow only requests an owner approval receipt. It does not contact or change production servers."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -118,10 +107,8 @@ jobs:
     needs: preflight
     runs-on: ubuntu-26.04
     timeout-minutes: 10
-    environment:
-      name: production-approval
     steps:
-      - name: Check out protected main
+      - name: Check out main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -133,18 +120,20 @@ jobs:
           RELEASE_TAG="$(jq -r '.inputs.release_tag' "$GITHUB_EVENT_PATH")"
           PACKAGE_SHA256="$(jq -r '.inputs.package_sha256' "$GITHUB_EVENT_PATH")"
           STAGING_PROOF_PATH="$(jq -r '.inputs.staging_proof_path' "$GITHUB_EVENT_PATH")"
+          CONFIRMATION="$(jq -r '.inputs.confirmation' "$GITHUB_EVENT_PATH")"
           git show "$GITHUB_SHA:$STAGING_PROOF_PATH" > "$RUNNER_TEMP/staging-acceptance.md"
           STAGING_PROOF_SHA256="$(sha256sum "$RUNNER_TEMP/staging-acceptance.md" | awk '{print $1}')"
           git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           SOURCE_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
-          export RELEASE_TAG PACKAGE_SHA256 STAGING_PROOF_PATH STAGING_PROOF_SHA256 SOURCE_COMMIT
+          export RELEASE_TAG PACKAGE_SHA256 STAGING_PROOF_PATH STAGING_PROOF_SHA256 SOURCE_COMMIT CONFIRMATION
           export REQUESTED_BY="$GITHUB_ACTOR" WORKFLOW_RUN_ID="$GITHUB_RUN_ID"
           export WORKFLOW_RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           export REQUESTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python3 - <<'PY'
           import json, os
           receipt = {
-              "approval_gate": "production-approval",
+              "approval_gate": "owner-workflow-dispatch",
+              "owner_confirmation": os.environ["CONFIRMATION"],
               "release_tag": os.environ["RELEASE_TAG"],
               "source_commit": os.environ["SOURCE_COMMIT"],
               "package_sha256": os.environ["PACKAGE_SHA256"],
@@ -154,7 +143,7 @@ jobs:
               "requested_at_utc": os.environ["REQUESTED_AT_UTC"],
               "workflow_run_id": os.environ["WORKFLOW_RUN_ID"],
               "workflow_run_url": os.environ["WORKFLOW_RUN_URL"],
-              "environment_review": "passed before this job started",
+              "authorization_method": "owner workflow_dispatch with exact typed confirmation",
               "deployment_performed": False,
           }
           with open("promotion-approval-receipt.json", "w", encoding="utf-8") as output:

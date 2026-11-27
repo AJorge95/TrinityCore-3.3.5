@@ -9,8 +9,8 @@
 - Codex Desktop runs on Windows, outside WSL, as the authoring and control surface.
 - Keep one canonical project worktree in Ubuntu WSL2's ext4 filesystem, separate from the pinned upstream-only checkout. Windows WSL filesystem integration exposes that tree to Codex Desktop; do not maintain a second divergent source copy under the Eurybia docs folder.
 - Run Linux CMake/Ninja builds, CTest, and local server checks inside WSL2.
-- The canonical project worktree is /home/ajorge/projects/trinitycore/project, cloned from AJorge95/TrinityCore-3.3.5 at main merge 078c128b4cc423feb44d8a96bea84e20eb8cd7e9. Codex Desktop runs on Windows outside WSL and edits this WSL2 ext4 checkout through \\wsl.localhost\Ubuntu\home\ajorge\projects\trinitycore\project; run Linux builds and server checks inside Ubuntu WSL. Use short-lived topic branches for changes and merge through pull requests.
-- The separate /home/ajorge/projects/trinitycore/source checkout follows upstream TrinityCore 3.3.5 and remains pinned to the upstream baseline. Do not use it as the project fork working tree.
+- The canonical project worktree is `/home/ajorge/projects/trinitycore/project` on `codex/phase5-wsl-project-worktree` at `bd47ac845ac399f9ab404db7f4caec9b3c623366`, branched from the initial project merge. Codex Desktop edits this WSL2 ext4 checkout through `\\wsl.localhost\Ubuntu\home\ajorge\projects\trinitycore\project`; run Linux builds and server checks inside Ubuntu WSL. Use short-lived topic branches for changes and merge through pull requests.
+- The separate `/home/ajorge/projects/trinitycore/source` checkout follows upstream TrinityCore 3.3.5 and remains pinned to the upstream baseline. Do not use it as the project fork working tree.
 - The Eurybia docs folder stores project design, documentation, tools, proofs, and downloaded release artifacts.
 - Push source changes to GitHub through topic branches and pull requests. GitHub Actions builds the release artifact. After isolated staging and explicit owner authorization, deploy the same verified artifact digest to the split Authserver and Worldserver hosts. Production receives the verified artifact and approved configuration/schema operations, never source-editor synchronization.
 
@@ -20,7 +20,9 @@ Use a short-lived topic branch and open a pull request for each project change. 
 
 For applicable source/build changes, wait for all six configured PR checks to pass. The required context names are listed below and must stay synchronized with the main branch rule. A green build is not staging, gameplay, or production acceptance.
 
-## Active main protection
+## Main-branch merge controls
+
+Use these controls when GitHub plan and repository visibility support them:
 
 - Require a pull request before merging.
 - Require all six strict status checks to pass:
@@ -36,15 +38,13 @@ For applicable source/build changes, wait for all six configured PR checks to pa
 - Keep release creation separate from production promotion.
 - Do not configure auto-deployment from pull requests or ordinary build runs.
 
-## Enforcement status
+The repository is currently public, and classic branch protection was read back on `main` on 27 November 2026. Public visibility is not a project requirement. GitHub Pro supports classic branch protection for private repositories; on GitHub Free private repositories, use the owner's review and green-CI checklist because server-side branch protection is unavailable. The project does not require a second reviewer or rulesets.
 
-The repository is public for owner-authorized testing. Classic branch protection is active and was read back on main on 27 November 2026. It enforces the pull-request gate, the six strict checks listed above, zero required approvals, administrator enforcement, and force-push/deletion blocks.
-
-The GitHub rule enforces the pull request and passing checks; it does not enforce the owner's diff review because required approvals are zero. The owner review is the project's operating policy and checklist. Check the live PR for current check results; all six required contexts must be green before merge.
+The GitHub rule does not enforce the owner's diff review because required approvals are zero. The owner review is the project's operating policy and checklist. Check the live PR for current check results; all six required contexts must be green before merge. If the active plan cannot enforce those checks, the owner verifies them manually before merge.
 
 ## Solo production approval
 
-A single owner can authorize a promotion after staging evidence is complete. No second-person approval is part of this project. Production credentials remain outside GitHub; the production hosts remain separate from CI runners. A self-approval environment gate may be used only if the account/repository plan supports it and self-review prevention is disabled. Until then, promotion is an explicit owner-run operation with a recorded change, artifact digest, backup, and rollback point.
+A single owner authorizes promotion only after staging evidence is complete. The approval workflow requires the owner to dispatch it from `main` and type the exact release tag and package digest. It verifies the immutable release, checksum, provenance, and committed staging proof, then produces an audit receipt. It does not deploy. No GitHub Environment, second-person approval, or public repository is required. Production credentials remain outside GitHub; production hosts stay separate from CI runners.
 
 ## Data boundary
 
