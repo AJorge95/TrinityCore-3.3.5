@@ -9,7 +9,8 @@
 - Codex Desktop runs on Windows, outside WSL, as the authoring and control surface.
 - Keep one canonical project worktree in Ubuntu WSL2's ext4 filesystem, separate from the pinned upstream-only checkout. Windows WSL filesystem integration exposes that tree to Codex Desktop; do not maintain a second divergent source copy under the Eurybia docs folder.
 - Run Linux CMake/Ninja builds, CTest, and local server checks inside WSL2.
-- The current /home/ajorge/projects/trinitycore/source checkout follows upstream TrinityCore 3.3.5 and remains the upstream baseline. Do not use it as the project fork working tree. A dedicated local working tree for the project PR has not yet been created.
+- The canonical project worktree is /home/ajorge/projects/trinitycore/project, cloned from AJorge95/TrinityCore-3.3.5 at main merge 078c128b4cc423feb44d8a96bea84e20eb8cd7e9. Codex Desktop runs on Windows outside WSL and edits this WSL2 ext4 checkout through \\wsl.localhost\Ubuntu\home\ajorge\projects\trinitycore\project; run Linux builds and server checks inside Ubuntu WSL. Use short-lived topic branches for changes and merge through pull requests.
+- The separate /home/ajorge/projects/trinitycore/source checkout follows upstream TrinityCore 3.3.5 and remains pinned to the upstream baseline. Do not use it as the project fork working tree.
 - The Eurybia docs folder stores project design, documentation, tools, proofs, and downloaded release artifacts.
 - Push source changes to GitHub through topic branches and pull requests. GitHub Actions builds the release artifact. After isolated staging and explicit owner authorization, deploy the same verified artifact digest to the split Authserver and Worldserver hosts. Production receives the verified artifact and approved configuration/schema operations, never source-editor synchronization.
 
