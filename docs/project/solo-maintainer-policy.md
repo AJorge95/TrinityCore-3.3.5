@@ -6,8 +6,8 @@
 
 ## Windows, WSL2, and production flow
 
-- Codex runs on the Windows host as the authoring and control surface.
-- Keep one dedicated project working tree in Ubuntu WSL2's ext4 filesystem, separate from the pinned upstream-only checkout. Open the WSL-backed project tree to the Windows editing workflow through WSL/VS Code integration; do not maintain a second divergent source copy under `D:\Eurybia`.
+- Codex Desktop runs on Windows, outside WSL, as the authoring and control surface.
+- Keep one canonical project worktree in Ubuntu WSL2's ext4 filesystem, separate from the pinned upstream-only checkout. Windows WSL filesystem integration exposes that tree to Codex Desktop; do not maintain a second divergent source copy under `D:\Eurybia`.
 - Run Linux CMake/Ninja builds, CTest, and local server checks inside WSL2.
 - The current `/home/ajorge/projects/trinitycore/source` checkout follows upstream TrinityCore 3.3.5 and remains the upstream baseline. Do not use it as the project fork working tree. A dedicated local working tree for the project PR has not yet been created.
 - `D:\Eurybia` stores project design, documentation, tools, proofs, and downloaded release artifacts.
@@ -30,7 +30,9 @@ For applicable source/build changes, wait for all configured PR build/test lanes
 
 ## Enforcement status
 
-The repository is private. On 27 November 2026, a read-only GitHub ruleset request returned HTTP 403 with the message that rulesets require GitHub Pro or a public repository. The policy above is therefore **documented but not enforced** at present. Recheck the repository plan and visibility before claiming branch protection is active. If the repo remains private on an ineligible plan, preserve the PR/check discipline manually; do not add an impossible second-review gate.
+The repository is public for owner-authorized testing. Classic branch protection is active and read back on `main` as of 27 November 2026. It requires a PR and these six strict status checks: `clang-17 / Debug / PCH=0`, `clang-17 / Debug / PCH=1`, `clang-17 / Release / PCH=1`, `gcc-13 / Debug / PCH=1`, `macOS arm64 build`, and `Windows x64 build`. Required approving reviews are **0**; enforcement applies to administrators; force pushes and branch deletion are blocked. Rulesets are not used or required.
+
+The policy is enforced on `main`. The latest PR check attempt on commit `de53d6e44e60ef54bf3a40fa82abfefa744fd97c` failed before any runner steps appeared; treat the PR as blocked until all six checks complete successfully and the owner reviews the diff.
 
 ## Solo production approval
 
