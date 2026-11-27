@@ -317,9 +317,10 @@ jobs:
           grep -Fxq "Source tag: $GITHUB_REF_NAME" <<<"$manifest"
           grep -Fxq "Source commit: $GITHUB_SHA" <<<"$manifest"
           grep -Fq "Build tools: CMake 4.2.3 (/usr/bin/cmake);" <<<"$manifest"
-          tar -tzf "$ARCHIVE" | grep -Fxq './MANIFEST.txt'
-          tar -tzf "$ARCHIVE" | grep -Fxq './bin/authserver'
-          tar -tzf "$ARCHIVE" | grep -Fxq './bin/worldserver'
+          tar -tzf "$ARCHIVE" > archive-members.txt
+          grep -Fxq './MANIFEST.txt' archive-members.txt
+          grep -Fxq './bin/authserver' archive-members.txt
+          grep -Fxq './bin/worldserver' archive-members.txt
           command -v gh >/dev/null
 
       - name: Publish verified package and build provenance
