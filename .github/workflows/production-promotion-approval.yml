@@ -1,0 +1,178 @@
+name: Production Promotion Approval
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Immutable TrinityCore project release tag
+        type: string
+        required: true
+      package_sha256:
+        description: Exact SHA-256 digest of the Ubuntu 26.04 package
+        type: string
+        required: true
+      staging_proof_path:
+        description: Committed staging acceptance record under docs/project/staging-acceptance/
+        type: string
+        required: true
+      confirmation:
+        description: Type AUTHORIZE followed by the exact release tag and package digest
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Verify staged immutable release
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify owner request, immutable release, digest, and staging evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Dispatch this workflow from main." >&2; exit 1; }
+          [[ "$GITHUB_ACTOR" == "AJorge95" ]] || { echo "Only the repository owner may request promotion authorization." >&2; exit 1; }
+
+          RELEASE_TAG="$(jq -r '.inputs.release_tag // empty' "$GITHUB_EVENT_PATH")"
+          PACKAGE_SHA256="$(jq -r '.inputs.package_sha256 // empty' "$GITHUB_EVENT_PATH")"
+          STAGING_PROOF_PATH="$(jq -r '.inputs.staging_proof_path // empty' "$GITHUB_EVENT_PATH")"
+          CONFIRMATION="$(jq -r '.inputs.confirmation // empty' "$GITHUB_EVENT_PATH")"
+
+          [[ "$RELEASE_TAG" =~ ^trinitycore-3\.3\.5-project-snapshot-[a-z0-9-]+$ ]] || { echo "Release tag format is invalid." >&2; exit 1; }
+          [[ "$PACKAGE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "Package SHA-256 must be 64 lowercase hexadecimal characters." >&2; exit 1; }
+          [[ "$STAGING_PROOF_PATH" =~ ^docs/project/staging-acceptance/[A-Za-z0-9][A-Za-z0-9._-]*\.md$ ]] || { echo "Staging proof must be a Markdown file under docs/project/staging-acceptance/." >&2; exit 1; }
+          [[ "$CONFIRMATION" == "AUTHORIZE $RELEASE_TAG $PACKAGE_SHA256" ]] || { echo "The typed owner confirmation does not match the selected release and digest." >&2; exit 1; }
+
+          ENVIRONMENT_JSON="$RUNNER_TEMP/production-approval-environment.json"
+          curl --fail --silent --show-error --location \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/environments/production-approval" > "$ENVIRONMENT_JSON"
+          jq -e --arg owner "AJorge95" '
+            .deployment_branch_policy.protected_branches == true
+            and .deployment_branch_policy.custom_branch_policies == false
+            and ([.protection_rules[]
+              | select(.type == "required_reviewers")
+              | select(.prevent_self_review == false)
+              | select(any(.reviewers[]; .reviewer.login == $owner))
+            ] | length == 1)
+          ' "$ENVIRONMENT_JSON" >/dev/null || { echo "Configure production-approval with AJorge95 as its required reviewer, allow owner self-review, and restrict it to protected branches." >&2; exit 1; }
+
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          SOURCE_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          RELEASE_JSON="$RUNNER_TEMP/release.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RELEASE_JSON"
+          [[ "$(jq -r '.tag_name' "$RELEASE_JSON")" == "$RELEASE_TAG" ]]
+          [[ "$(jq -r '.immutable' "$RELEASE_JSON")" == "true" ]] || { echo "GitHub does not report this release as immutable." >&2; exit 1; }
+          [[ "$(jq -r '.assets | length' "$RELEASE_JSON")" == "3" ]] || { echo "Release must contain exactly the package, checksum, and provenance assets." >&2; exit 1; }
+
+          mapfile -t ARCHIVES < <(jq -r '.assets[] | select(.name | endswith("-ubuntu26.04.tar.gz")) | [.name, .digest] | @tsv' "$RELEASE_JSON")
+          [[ "${#ARCHIVES[@]}" == "1" ]] || { echo "Release must contain exactly one Ubuntu 26.04 package." >&2; exit 1; }
+          IFS=$'	' read -r ARCHIVE_NAME API_PACKAGE_DIGEST <<< "${ARCHIVES[0]}"
+          [[ "$ARCHIVE_NAME" =~ ^trinitycore-3\.3\.5-[0-9a-f]{12}-ubuntu26\.04\.tar\.gz$ ]] || { echo "Unexpected package filename." >&2; exit 1; }
+          [[ "$API_PACKAGE_DIGEST" == "sha256:$PACKAGE_SHA256" ]] || { echo "Release API package digest does not match the requested digest." >&2; exit 1; }
+
+          SIDECAR_NAME="${ARCHIVE_NAME}.sha256"
+          PROVENANCE_NAME="${ARCHIVE_NAME}.provenance.json"
+          jq -e --arg sidecar "$SIDECAR_NAME" --arg provenance "$PROVENANCE_NAME" '[.assets[].name] as $names | ($names | index($sidecar)) != null and ($names | index($provenance)) != null' "$RELEASE_JSON" >/dev/null
+
+          git show "$GITHUB_SHA:$STAGING_PROOF_PATH" > "$RUNNER_TEMP/staging-acceptance.md"
+          grep -Fxq "STAGING_ACCEPTANCE: PASS" "$RUNNER_TEMP/staging-acceptance.md"
+          grep -Fxq "Release tag: $RELEASE_TAG" "$RUNNER_TEMP/staging-acceptance.md"
+          grep -Fxq "Package SHA-256: $PACKAGE_SHA256" "$RUNNER_TEMP/staging-acceptance.md"
+          STAGING_PROOF_SHA256="$(sha256sum "$RUNNER_TEMP/staging-acceptance.md" | awk '{print $1}')"
+
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets"
+          ACTUAL_SHA256="$(sha256sum "$RUNNER_TEMP/release-assets/$ARCHIVE_NAME" | awk '{print $1}')"
+          [[ "$ACTUAL_SHA256" == "$PACKAGE_SHA256" ]] || { echo "Downloaded package digest does not match the owner request." >&2; exit 1; }
+          (cd "$RUNNER_TEMP/release-assets" && sha256sum --check "$SIDECAR_NAME")
+          jq -e --arg tag "$RELEASE_TAG" --arg commit "$SOURCE_COMMIT" --arg archive "$ARCHIVE_NAME" --arg digest "$PACKAGE_SHA256" '.source.tag == $tag and .source.commit == $commit and .artifact == $archive and .sha256 == $digest' "$RUNNER_TEMP/release-assets/$PROVENANCE_NAME" >/dev/null
+
+          {
+            echo "## Production promotion preflight passed"
+            echo
+            echo "- Release tag: $RELEASE_TAG"
+            echo "- Source commit: $SOURCE_COMMIT"
+            echo "- Immutable release: confirmed by GitHub API"
+            echo "- Package SHA-256: $PACKAGE_SHA256"
+            echo "- Staging acceptance: $STAGING_PROOF_PATH"
+            echo "- Staging proof SHA-256: $STAGING_PROOF_SHA256"
+            echo "- Production approval environment: owner reviewer and protected-branch policy verified"
+            echo
+            echo "This workflow only requests an owner approval receipt. It does not contact or change production servers."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  owner-approval:
+    name: Record explicit owner approval
+    needs: preflight
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    environment:
+      name: production-approval
+    steps:
+      - name: Check out protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Create approval receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="$(jq -r '.inputs.release_tag' "$GITHUB_EVENT_PATH")"
+          PACKAGE_SHA256="$(jq -r '.inputs.package_sha256' "$GITHUB_EVENT_PATH")"
+          STAGING_PROOF_PATH="$(jq -r '.inputs.staging_proof_path' "$GITHUB_EVENT_PATH")"
+          git show "$GITHUB_SHA:$STAGING_PROOF_PATH" > "$RUNNER_TEMP/staging-acceptance.md"
+          STAGING_PROOF_SHA256="$(sha256sum "$RUNNER_TEMP/staging-acceptance.md" | awk '{print $1}')"
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          SOURCE_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          export RELEASE_TAG PACKAGE_SHA256 STAGING_PROOF_PATH STAGING_PROOF_SHA256 SOURCE_COMMIT
+          export REQUESTED_BY="$GITHUB_ACTOR" WORKFLOW_RUN_ID="$GITHUB_RUN_ID"
+          export WORKFLOW_RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          export REQUESTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 - <<'PY'
+          import json, os
+          receipt = {
+              "approval_gate": "production-approval",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "package_sha256": os.environ["PACKAGE_SHA256"],
+              "staging_proof_path": os.environ["STAGING_PROOF_PATH"],
+              "staging_proof_sha256": os.environ["STAGING_PROOF_SHA256"],
+              "requested_by": os.environ["REQUESTED_BY"],
+              "requested_at_utc": os.environ["REQUESTED_AT_UTC"],
+              "workflow_run_id": os.environ["WORKFLOW_RUN_ID"],
+              "workflow_run_url": os.environ["WORKFLOW_RUN_URL"],
+              "environment_review": "passed before this job started",
+              "deployment_performed": False,
+          }
+          with open("promotion-approval-receipt.json", "w", encoding="utf-8") as output:
+              json.dump(receipt, output, indent=2, sort_keys=True)
+              output.write("\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write("## Owner approval recorded\n\n")
+              output.write(f"- Release: {receipt['release_tag']}\n")
+              output.write(f"- Package SHA-256: {receipt['package_sha256']}\n")
+              output.write(f"- Staging evidence: {receipt['staging_proof_path']} (SHA-256 {receipt['staging_proof_sha256']})\n")
+              output.write(f"- Workflow run: {receipt['workflow_run_url']}\n")
+              output.write("- Production deployment performed: no\n")
+          PY
+
+      - name: Upload approval receipt
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: production-promotion-approval-${{ github.run_id }}
+          path: promotion-approval-receipt.json
+          if-no-files-found: error
+          retention-days: 90
