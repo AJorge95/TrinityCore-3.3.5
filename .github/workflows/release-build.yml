@@ -347,6 +347,7 @@ jobs:
             "$ARCHIVE.sha256"
             "$ARCHIVE.provenance.json"
             --verify-tag
+            --repo "$GITHUB_REPOSITORY"
             --title "TrinityCore 3.3.5 $GITHUB_REF_NAME"
             --notes-file release-notes.md
             --latest=false
