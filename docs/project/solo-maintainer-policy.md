@@ -32,7 +32,7 @@ For applicable source/build changes, wait for all configured PR build/test lanes
 
 The repository is public for owner-authorized testing. Classic branch protection is active and read back on `main` as of 27 November 2026. It requires a PR and these six strict status checks: `clang-17 / Debug / PCH=0`, `clang-17 / Debug / PCH=1`, `clang-17 / Release / PCH=1`, `gcc-13 / Debug / PCH=1`, `macOS arm64 build`, and `Windows x64 build`. Required approving reviews are **0**; enforcement applies to administrators; force pushes and branch deletion are blocked. Rulesets are not used or required.
 
-The policy is enforced on `main`. The latest PR check attempt on commit `de53d6e44e60ef54bf3a40fa82abfefa744fd97c` failed before any runner steps appeared; treat the PR as blocked until all six checks complete successfully and the owner reviews the diff.
+The policy is enforced on `main`. The rule blocks merge until all six required checks pass and the owner reviews the diff. Check the live PR for current check results; each required context must be green before merge.
 
 ## Solo production approval
 

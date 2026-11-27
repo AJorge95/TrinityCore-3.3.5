@@ -18,7 +18,7 @@ Source changes go through GitHub PRs. GitHub Actions creates the release artifac
 
 ## Solo-maintainer review
 
-Pull requests are retained for change history and CI. No second-person approval is required; the owner reviews and may merge their own PR after all applicable checks pass. Classic branch protection is active on `main`: it requires a PR, six strict Linux/Windows/macOS check contexts, zero approvals, administrator enforcement, and blocks force pushes and deletion. Rulesets are not used or required. The latest PR check attempt failed before runner steps started, so merge remains blocked pending successful checks and owner review.
+Pull requests are retained for change history and CI. No second-person approval is required; the owner reviews and may merge their own PR after all applicable checks pass. Classic branch protection is active on `main`: it requires a PR, six strict Linux/Windows/macOS check contexts, zero approvals, administrator enforcement, and blocks force pushes and deletion. Rulesets are not used or required. The rule blocks merge until all six required status checks pass and the owner reviews the diff. Check PR #1 for live run state before merge.
 
 ## Data boundary
 
