@@ -10,6 +10,12 @@ A solo-maintained project repository for the TrinityCore 3.3.5 server build, CI,
 
 Project-specific workflows and release tooling are maintained in this repository and proposed through pull requests. The project policy and PR checklist are in [docs/project/solo-maintainer-policy.md](docs/project/solo-maintainer-policy.md) and [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
 
+## Windows and WSL2 development
+
+Codex runs on the Windows host as the authoring/control surface. The intended project checkout is a single dedicated worktree in Ubuntu WSL2's ext4 filesystem, exposed to Windows through WSL/VS Code integration. CMake/Ninja builds, CTest, and local server checks run in WSL2. Keep the upstream-only checkout separate. `D:\Eurybia` is the project design/docs/tools/proofs/artifacts folder, not a second source copy.
+
+Source changes go through GitHub PRs. GitHub Actions creates the release artifact; after isolated staging and explicit owner authorization, deploy the same verified digest to the Authserver and Worldserver production hosts. Do not synchronize source code directly to production.
+
 ## Solo-maintainer review
 
 Pull requests are retained for change history and CI. No second-person approval is required; the owner reviews and may merge their own PR after all applicable checks pass. Branch protection is documented but is not currently enforced because GitHub rejected the ruleset read for this private repository/plan combination. Do not claim `main` is protected until the saved settings can be read back and verified.
