@@ -16,6 +16,9 @@ concurrency:
 jobs:
   release-build:
     name: Ubuntu 26.04 / Clang 18 / MySQL 8.4
+    outputs:
+      archive: ${{ steps.package.outputs.archive }}
+      digest: ${{ steps.package.outputs.digest }}
     runs-on: ubuntu-26.04
     timeout-minutes: 180
     env:
@@ -257,3 +260,94 @@ jobs:
             ${{ runner.temp }}/ldd-release.txt
           if-no-files-found: ignore
           retention-days: 14
+
+  publish-release:
+    name: Publish checksum-verified GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/trinitycore-3.3.5-project-snapshot-')
+    needs: release-build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      ARCHIVE: ${{ needs.release-build.outputs.archive }}
+      DIGEST: ${{ needs.release-build.outputs.digest }}
+
+    steps:
+      - name: Download the exact build artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: trinitycore-release-${{ needs.release-build.outputs.digest }}
+          path: ${{ runner.temp }}/trinitycore-release
+
+      - name: Verify tag, package checksum, and provenance
+        shell: bash
+        working-directory: ${{ runner.temp }}/trinitycore-release
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/tags/trinitycore-3.3.5-project-snapshot-* ]]
+          [[ "$ARCHIVE" == "trinitycore-3.3.5-${GITHUB_SHA:0:12}-ubuntu26.04.tar.gz" ]]
+          [[ "$DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          test -s "$ARCHIVE"
+          test -s "$ARCHIVE.sha256"
+          test -s "$ARCHIVE.provenance.json"
+          sha256sum -c "$ARCHIVE.sha256"
+          actual_digest="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+          [[ "$actual_digest" == "$DIGEST" ]]
+
+          jq_args=(
+            --arg archive "$ARCHIVE"
+            --arg digest "$DIGEST"
+            --arg tag "$GITHUB_REF_NAME"
+            --arg commit "$GITHUB_SHA"
+            --arg run_id "$GITHUB_RUN_ID"
+          )
+          jq -e "${jq_args[@]}" '
+            .artifact == $archive and
+            .sha256 == $digest and
+            .source.tag == $tag and
+            .source.commit == $commit and
+            .builder.run_id == $run_id and
+            .toolchain.cmake == "4.2.3" and
+            .toolchain.cmake_binary == "/usr/bin/cmake" and
+            .toolchain.pinned_direct_packages.cmake == "4.2.3-2ubuntu2"
+          ' "$ARCHIVE.provenance.json" >/dev/null
+
+          manifest="$(tar -xOzf "$ARCHIVE" ./MANIFEST.txt)"
+          grep -Fxq "Source tag: $GITHUB_REF_NAME" <<<"$manifest"
+          grep -Fxq "Source commit: $GITHUB_SHA" <<<"$manifest"
+          grep -Fq "Build tools: CMake 4.2.3 (/usr/bin/cmake);" <<<"$manifest"
+          tar -tzf "$ARCHIVE" | grep -Fxq './MANIFEST.txt'
+          tar -tzf "$ARCHIVE" | grep -Fxq './bin/authserver'
+          tar -tzf "$ARCHIVE" | grep -Fxq './bin/worldserver'
+          command -v gh >/dev/null
+
+      - name: Publish verified package and build provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}/trinitycore-release
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          TrinityCore 3.3.5 project snapshot built from commit $GITHUB_SHA.
+
+          Build tag: $GITHUB_REF_NAME
+          Ubuntu target: 26.04
+          Compiler: Clang 18
+          CMake: 4.2.3 at /usr/bin/cmake
+          SHA-256: $DIGEST
+
+          Assets include the server binaries, required shared libraries and dynamic scripts, checksum, and JSON build provenance. Database contents, client data, SQL source, configuration, and credentials are excluded.
+          EOF
+          gh_args=(
+            "$GITHUB_REF_NAME"
+            "$ARCHIVE"
+            "$ARCHIVE.sha256"
+            "$ARCHIVE.provenance.json"
+            --verify-tag
+            --title "TrinityCore 3.3.5 $GITHUB_REF_NAME"
+            --notes-file release-notes.md
+            --latest=false
+          )
+          gh release create "${gh_args[@]}"
