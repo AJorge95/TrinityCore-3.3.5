@@ -32,4 +32,4 @@ This is an authorization record only. The later promotion workflow must consume 
 
 ## Current status
 
-The private-compatible owner-dispatch workflow change is prepared on its feature branch for review. No staging acceptance record exists yet, so the workflow intentionally fails closed until staging has passed and its proof is committed.
+The private-compatible owner-dispatch workflow and runbook are committed locally as `1561146` on the feature branch and await publication and hosted CI. No staging acceptance record exists yet, so the workflow intentionally fails closed until staging has passed and its proof is committed.
