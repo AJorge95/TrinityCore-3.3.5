@@ -6,6 +6,7 @@ on:
 
 jobs:
   build:
+    name: macOS arm64 build
     runs-on: macos-15
 
     steps:

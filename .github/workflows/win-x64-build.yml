@@ -6,6 +6,7 @@ on:
 
 jobs:
   build:
+    name: Windows x64 build
     runs-on: windows-latest
     env:
       CMAKE_BUILD_TYPE: RelWithDebInfo
