@@ -1,38 +1,45 @@
 # Solo-maintainer repository policy
 
-**Repository:** `AJorge95/TrinityCore-3.3.5`  
-**Default branch:** `main`  
+**Repository:** AJorge95/TrinityCore-3.3.5  
+**Default branch:** main  
 **Maintainer model:** one owner; no external collaborator or reviewer dependency.
 
 ## Windows, WSL2, and production flow
 
 - Codex Desktop runs on Windows, outside WSL, as the authoring and control surface.
-- Keep one canonical project worktree in Ubuntu WSL2's ext4 filesystem, separate from the pinned upstream-only checkout. Windows WSL filesystem integration exposes that tree to Codex Desktop; do not maintain a second divergent source copy under `D:\Eurybia`.
+- Keep one canonical project worktree in Ubuntu WSL2's ext4 filesystem, separate from the pinned upstream-only checkout. Windows WSL filesystem integration exposes that tree to Codex Desktop; do not maintain a second divergent source copy under the Eurybia docs folder.
 - Run Linux CMake/Ninja builds, CTest, and local server checks inside WSL2.
-- The current `/home/ajorge/projects/trinitycore/source` checkout follows upstream TrinityCore 3.3.5 and remains the upstream baseline. Do not use it as the project fork working tree. A dedicated local working tree for the project PR has not yet been created.
-- `D:\Eurybia` stores project design, documentation, tools, proofs, and downloaded release artifacts.
+- The current /home/ajorge/projects/trinitycore/source checkout follows upstream TrinityCore 3.3.5 and remains the upstream baseline. Do not use it as the project fork working tree. A dedicated local working tree for the project PR has not yet been created.
+- The Eurybia docs folder stores project design, documentation, tools, proofs, and downloaded release artifacts.
 - Push source changes to GitHub through topic branches and pull requests. GitHub Actions builds the release artifact. After isolated staging and explicit owner authorization, deploy the same verified artifact digest to the split Authserver and Worldserver hosts. Production receives the verified artifact and approved configuration/schema operations, never source-editor synchronization.
 
 ## Pull request workflow
 
 Use a short-lived topic branch and open a pull request for each project change. The pull request is the audit record and CI entry point, even when its author is also the only maintainer. The owner reviews the diff, checks the evidence and may merge their own pull request. Required approving reviews: **0**.
 
-For applicable source/build changes, wait for all configured PR build/test lanes (Linux/CMake/CTest, Windows x64, and macOS arm64) to pass. Check the actual run's required status names before configuring branch protection; do not guess status contexts. A green build is not staging, gameplay, or production acceptance.
+For applicable source/build changes, wait for all six configured PR checks to pass. The required context names are listed below and must stay synchronized with the main branch rule. A green build is not staging, gameplay, or production acceptance.
 
-## Intended `main` protection
+## Active main protection
 
 - Require a pull request before merging.
-- Require all selected CI checks to pass.
-- Require zero approving reviews; permit owner self-review and self-merge.
+- Require all six strict status checks to pass:
+  - clang-17 / Debug / PCH=0
+  - clang-17 / Debug / PCH=1
+  - clang-17 / Release / PCH=1
+  - gcc-13 / Debug / PCH=1
+  - macOS arm64 build
+  - Windows x64 build
+- Require zero approving reviews so the sole owner can self-review and merge.
+- Enforce the rule for administrators.
 - Block force pushes and branch deletion.
 - Keep release creation separate from production promotion.
 - Do not configure auto-deployment from pull requests or ordinary build runs.
 
 ## Enforcement status
 
-The repository is public for owner-authorized testing. Classic branch protection is active and read back on `main` as of 27 November 2026. It requires a PR and these six strict status checks: `clang-17 / Debug / PCH=0`, `clang-17 / Debug / PCH=1`, `clang-17 / Release / PCH=1`, `gcc-13 / Debug / PCH=1`, `macOS arm64 build`, and `Windows x64 build`. Required approving reviews are **0**; enforcement applies to administrators; force pushes and branch deletion are blocked. Rulesets are not used or required.
+The repository is public for owner-authorized testing. Classic branch protection is active and was read back on main on 27 November 2026. It enforces the pull-request gate, the six strict checks listed above, zero required approvals, administrator enforcement, and force-push/deletion blocks.
 
-The policy is enforced on `main`. The rule blocks merge until all six required checks pass and the owner reviews the diff. Check the live PR for current check results; each required context must be green before merge.
+The GitHub rule enforces the pull request and passing checks; it does not enforce the owner's diff review because required approvals are zero. The owner review is the project's operating policy and checklist. Check the live PR for current check results; all six required contexts must be green before merge.
 
 ## Solo production approval
 
