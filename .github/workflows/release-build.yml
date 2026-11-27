@@ -1,0 +1,240 @@
+name: TrinityCore 3.3.5 Production Release Build
+
+on:
+  push:
+    tags:
+      - "trinitycore-3.3.5-*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trinitycore-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-build:
+    name: Ubuntu 26.04 / Clang 18 / MySQL 8.4
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    env:
+      APT_SNAPSHOT: 20261126T103300Z
+      CC: clang-18
+      CXX: clang++-18
+      BUILD_DIR: build-release
+
+    steps:
+      - name: Checkout pinned release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify a versioned source tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/tags/trinitycore-3.3.5-* ]]
+          test "$(git rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install snapshot-pinned Ubuntu 26.04 build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update --snapshot "$APT_SNAPSHOT"
+          sudo apt-get install -yq --snapshot "$APT_SNAPSHOT" \
+            clang-18=1:18.1.8-20ubuntu8 \
+            cmake=4.2.3-2ubuntu2 ninja-build=1.13.2-1 pkg-config=2.5.1-4 \
+            libboost1.83-dev=1.83.0-5ubuntu5 \
+            libboost-filesystem1.83-dev=1.83.0-5ubuntu5 \
+            libboost-locale1.83-dev=1.83.0-5ubuntu5 \
+            libboost-program-options1.83-dev=1.83.0-5ubuntu5 \
+            libboost-regex1.83-dev=1.83.0-5ubuntu5 \
+            libboost-thread1.83-dev=1.83.0-5ubuntu5 \
+            libboost-chrono1.83-dev=1.83.0-5ubuntu5 \
+            libboost-atomic1.83-dev=1.83.0-5ubuntu5 \
+            libssl-dev=3.5.5-1ubuntu3.7 \
+            libreadline-dev=8.3-4 \
+            zlib1g-dev=1:1.3.dfsg+really1.3.1-1ubuntu3.2 \
+            libbz2-dev=1.0.8-6ubuntu0.1 \
+            libmysqlclient-dev=8.4.13-0ubuntu0.26.04.2
+
+      - name: Check production compiler and database client ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang_version="$(clang++-18 --version | grep -Eo '18\.1\.8' | head -n 1)"
+          mysql_version="$(mysql_config --version)"
+          clang_package="$(dpkg-query -W -f='${Version}' clang-18)"
+          mysql_package="$(dpkg-query -W -f='${Version}' libmysqlclient24)"
+          boost_package="$(dpkg-query -W -f='${Version}' libboost-filesystem1.83.0)"
+          [[ "$clang_version" == "18.1.8" ]]
+          [[ "$mysql_version" == "8.4.13" ]]
+          [[ "$clang_package" == "1:18.1.8-20ubuntu8" ]]
+          [[ "$mysql_package" == "8.4.13-0ubuntu0.26.04.2" ]]
+          [[ "$boost_package" == "1.83.0-5ubuntu5" ]]
+          [[ "$(dpkg-query -W -f='${Version}' cmake)" == "4.2.3-2ubuntu2" ]]
+          [[ "$(dpkg-query -W -f='${Version}' ninja-build)" == "1.13.2-1" ]]
+          [[ "$(dpkg-query -W -f='${Version}' pkg-config)" == "2.5.1-4" ]]
+          printf 'APT snapshot: %s\nClang: %s (%s)\nMySQL client: %s (%s)\nBoost: %s\n' \
+            "$APT_SNAPSHOT" "$clang_version" "$clang_package" "$mysql_version" "$mysql_package" "$boost_package"
+          test -e /usr/lib/x86_64-linux-gnu/libmysqlclient.so.24
+          boost_version="${boost_package%%-*}"
+          [[ "$boost_version" == "1.83.0" ]]
+
+      - name: Configure Release build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/trinitycore-install" \
+            -DSERVERS=1 -DTOOLS=0 -DSCRIPTS=dynamic \
+            -DWITH_WARNINGS=1 -DWITH_WARNINGS_AS_ERRORS=1 \
+            -DWITH_COREDEBUG=0 -DUSE_COREPCH=1 -DUSE_SCRIPTPCH=1 \
+            -DNOJEM=0 -DBUILD_TESTING=0 -DCMAKE_SKIP_RPATH=ON \
+            -DCMAKE_CXX_FLAGS="-Wno-error=#warnings" \
+            2>&1 | tee "$RUNNER_TEMP/configure-release.log"
+
+      - name: Build production server targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$BUILD_DIR" --target authserver worldserver --parallel 2 \
+            2>&1 | tee "$RUNNER_TEMP/build-release.log"
+          cmake --install "$BUILD_DIR" 2>&1 | tee "$RUNNER_TEMP/install-release.log"
+
+      - name: Assemble and inspect the relocatable release package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          INSTALL_PREFIX="$RUNNER_TEMP/trinitycore-install"
+          PACKAGE_DIR="$RUNNER_TEMP/trinitycore-package"
+          install -d "$PACKAGE_DIR/bin/scripts" "$PACKAGE_DIR/lib"
+          install -m 0644 COPYING "$PACKAGE_DIR/COPYING"
+          install -m 0755 "$INSTALL_PREFIX/bin/authserver" "$PACKAGE_DIR/bin/authserver"
+          install -m 0755 "$INSTALL_PREFIX/bin/worldserver" "$PACKAGE_DIR/bin/worldserver"
+          find "$INSTALL_PREFIX/bin/scripts" -maxdepth 1 -type f -name 'libscripts_*.so' \
+            -exec install -m 0644 '{}' "$PACKAGE_DIR/bin/scripts/" \;
+          find "$INSTALL_PREFIX/lib" -maxdepth 1 -type f -name 'lib*.so*' \
+            -exec install -m 0644 '{}' "$PACKAGE_DIR/lib/" \;
+          test "$(find "$PACKAGE_DIR/bin/scripts" -maxdepth 1 -type f -name 'libscripts_*.so' | wc -l)" -gt 0
+          for library in libcommon.so libdatabase.so libgame.so libshared.so; do
+            test -f "$PACKAGE_DIR/lib/$library"
+          done
+
+          while IFS= read -r -d '' elf; do
+            if readelf -d "$elf" | grep -Eq '\((RPATH|RUNPATH)\)'; then
+              echo "Unexpected RPATH/RUNPATH in $elf" >&2
+              exit 1
+            fi
+            LD_LIBRARY_PATH="$PACKAGE_DIR/lib:$PACKAGE_DIR/bin/scripts${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+              ldd "$elf" | tee -a "$RUNNER_TEMP/ldd-release.txt"
+          done < <(find "$PACKAGE_DIR/bin" "$PACKAGE_DIR/lib" -type f \( -perm -0100 -o -name '*.so' \) -print0)
+          if grep -Fq 'not found' "$RUNNER_TEMP/ldd-release.txt"; then
+            echo 'Release package has unresolved shared libraries' >&2
+            exit 1
+          fi
+          grep -Fq 'libmysqlclient.so.24' "$RUNNER_TEMP/ldd-release.txt"
+
+          source_commit="$(git rev-parse HEAD)"
+          source_tag="${GITHUB_REF_NAME}"
+          host_os="$(. /etc/os-release && printf '%s' "$PRETTY_NAME")"
+          clang_version="$(clang++-18 --version | grep -Eo '18\.1\.8' | head -n 1)"
+          mysql_version="$(mysql_config --version)"
+          cmake_version="$(cmake --version | head -n 1 | awk '{print $3}')"
+          ninja_version="$(ninja --version)"
+          pkg_config_version="$(pkg-config --version)"
+          clang_package="$(dpkg-query -W -f='${Version}' clang-18)"
+          mysql_package="$(dpkg-query -W -f='${Version}' libmysqlclient24)"
+          boost_package="$(dpkg-query -W -f='${Version}' libboost-filesystem1.83.0)"
+          boost_version="${boost_package%%-*}"
+          pinned_packages="$(dpkg-query -W -f='${binary:Package}=${Version}\n' \
+            clang-18 cmake ninja-build pkg-config \
+            libboost1.83-dev libboost-filesystem1.83-dev libboost-locale1.83-dev \
+            libboost-program-options1.83-dev libboost-regex1.83-dev libboost-thread1.83-dev \
+            libboost-chrono1.83-dev libboost-atomic1.83-dev \
+            libssl-dev libreadline-dev zlib1g-dev libbz2-dev libmysqlclient-dev)"
+          cat > "$PACKAGE_DIR/MANIFEST.txt" <<EOF
+          TrinityCore 3.3.5 Ubuntu 26.04 Release package
+          Source tag: $source_tag
+          Source commit: $source_commit
+          Build profile: Release; Clang $clang_version; dynamic scripts
+          Build host: $host_os
+          Ubuntu APT snapshot: $APT_SNAPSHOT
+          Build tools: CMake $cmake_version; Ninja $ninja_version; pkg-config $pkg_config_version
+          Database client build: MySQL client $mysql_version; libmysqlclient.so.24
+          Highlighted runtime packages: clang-18=$clang_package; libmysqlclient24=$mysql_package; Boost filesystem=$boost_package
+          Pinned direct package versions:
+          $pinned_packages
+          Boost runtime ABI: $boost_version
+          Contents: COPYING license, authserver, worldserver, TrinityCore core shared libraries, dynamic script modules
+          RPATH: none; systemd units provide the release library search path
+          Configurations: excluded; install role configuration under /etc/trinitycore
+          Excluded: databases, extracted client data, client binaries, Debug artifacts, SQL source, credentials
+          EOF
+
+          archive="trinitycore-3.3.5-${source_commit:0:12}-ubuntu26.04.tar.gz"
+          tar -C "$PACKAGE_DIR" -czf "$RUNNER_TEMP/$archive" .
+          (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
+          digest="$(sha256sum "$RUNNER_TEMP/$archive" | awk '{print $1}')"
+          python3 - "$RUNNER_TEMP/$archive.provenance.json" "$archive" "$digest" "$source_commit" "$source_tag" "$clang_version" "$mysql_version" "$boost_version" "$APT_SNAPSHOT" "$clang_package" "$mysql_package" "$boost_package" "$cmake_version" "$ninja_version" "$pkg_config_version" "$pinned_packages" <<'PY'
+          import json, os, platform, sys
+          path, archive, digest, commit, tag, clang, mysql, boost, apt_snapshot, clang_pkg, mysql_pkg, boost_pkg, cmake, ninja, pkg_config, pinned_packages = sys.argv[1:]
+          document = {
+              "artifact": archive,
+              "sha256": digest,
+              "source": {"commit": commit, "tag": tag},
+              "builder": {
+                  "workflow": os.environ["GITHUB_WORKFLOW"],
+                  "run_id": os.environ["GITHUB_RUN_ID"],
+                  "runner_os": platform.platform(),
+                  "architecture": platform.machine(),
+                  "apt_snapshot": apt_snapshot,
+              },
+              "toolchain": {
+                  "clang": clang,
+                  "clang_package": clang_pkg,
+                  "mysql_client": mysql,
+                  "mysql_client_package": mysql_pkg,
+                  "boost_runtime_abi": boost,
+                  "boost_package": boost_pkg,
+                  "cmake": cmake,
+                  "ninja": ninja,
+                  "pkg_config": pkg_config,
+                  "pinned_direct_packages": dict(line.split("=", 1) for line in pinned_packages.splitlines()),
+              },
+          }
+          with open(path, "w", encoding="utf-8") as output:
+              json.dump(document, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release build and provenance
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: trinitycore-release-${{ steps.package.outputs.digest }}
+          path: |
+            ${{ runner.temp }}/${{ steps.package.outputs.archive }}
+            ${{ runner.temp }}/${{ steps.package.outputs.archive }}.sha256
+            ${{ runner.temp }}/${{ steps.package.outputs.archive }}.provenance.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-build-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/configure-release.log
+            ${{ runner.temp }}/build-release.log
+            ${{ runner.temp }}/install-release.log
+            ${{ runner.temp }}/ldd-release.txt
+          if-no-files-found: ignore
+          retention-days: 14
