@@ -1,0 +1,126 @@
+name: TrinityCore 3.3.5 Linux CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trinitycore-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.cc }} / ${{ matrix.build_type }} / PCH=${{ matrix.pch }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cc: gcc-13
+            cxx: g++-13
+            pch: 1
+            build_type: Debug
+            launcher: ""
+          - cc: clang-17
+            cxx: clang++-17
+            pch: 1
+            build_type: Debug
+            launcher: ""
+          - cc: clang-17
+            cxx: clang++-17
+            pch: 0
+            build_type: Debug
+            launcher: ccache
+          - cc: clang-17
+            cxx: clang++-17
+            pch: 1
+            build_type: Release
+            launcher: ""
+    env:
+      BUILD_DIR: build
+      CC: /usr/bin/${{ matrix.cc }}
+      CXX: /usr/bin/${{ matrix.cxx }}
+      CMAKE_BUILD_TYPE: ${{ matrix.build_type }}
+      CMAKE_C_COMPILER_LAUNCHER: ${{ matrix.launcher }}
+      CMAKE_CXX_COMPILER_LAUNCHER: ${{ matrix.launcher }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_CPP2: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -yq ccache libboost-dev libboost-filesystem-dev libboost-locale-dev libboost-program-options-dev libboost-regex-dev libboost-thread-dev libssl-dev libreadline-dev zlib1g-dev libbz2-dev
+
+      - name: Restore ccache
+        if: ${{ matrix.pch == 0 }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ runner.os }}-${{ matrix.cc }}-${{ matrix.pch }}-${{ matrix.build_type }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.cc }}-${{ matrix.pch }}-${{ matrix.build_type }}-${{ github.ref_name }}-
+            ${{ runner.os }}-${{ matrix.cc }}-${{ matrix.pch }}-${{ matrix.build_type }}-
+
+      - name: Configure ${{ matrix.build_type }} build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP"
+          cmake -GNinja -S "$GITHUB_WORKSPACE" -B "$BUILD_DIR" \
+            -DWITH_WARNINGS=1 -DWITH_WARNINGS_AS_ERRORS=1 -DWITH_COREDEBUG=0 -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DUSE_COREPCH=${{ matrix.pch }} -DUSE_SCRIPTPCH=${{ matrix.pch }} \
+            -DTOOLS=1 -DSCRIPTS=dynamic -DSERVERS=1 -DNOJEM=0 \
+            -DCMAKE_C_FLAGS_DEBUG="-DNDEBUG -g0" \
+            -DCMAKE_CXX_FLAGS_DEBUG="-DNDEBUG -g0" \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/trinitycore-install" \
+            -DBUILD_TESTING=1 2>&1 | tee "$RUNNER_TEMP/configure.log"
+
+      - name: Build ${{ matrix.build_type }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.pch }}" == "0" ]]; then ccache -z; fi
+          cmake --build "$BUILD_DIR" --parallel 2 2>&1 | tee "$RUNNER_TEMP/build.log"
+          if [[ "${{ matrix.pch }}" == "0" ]]; then ccache -s; fi
+
+      - name: Run CTest (${{ matrix.build_type }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir "$BUILD_DIR" --output-on-failure \
+            --output-junit "$RUNNER_TEMP/ctest.xml" 2>&1 | tee "$RUNNER_TEMP/ctest.log"
+
+      - name: Install and check server binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --install "$BUILD_DIR"
+          "$RUNNER_TEMP/trinitycore-install/bin/authserver" --version
+          "$RUNNER_TEMP/trinitycore-install/bin/worldserver" --version
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: linux-ci-${{ matrix.cc }}-${{ matrix.build_type }}-pch-${{ matrix.pch }}-${{ github.run_id }}
+          path: |
+            build/CMakeCache.txt
+            build/Testing/Temporary/
+            ${{ runner.temp }}/configure.log
+            ${{ runner.temp }}/build.log
+            ${{ runner.temp }}/ctest.log
+            ${{ runner.temp }}/ctest.xml
+          if-no-files-found: ignore
+          retention-days: 14
