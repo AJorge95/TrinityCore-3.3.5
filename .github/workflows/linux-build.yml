@@ -2,6 +2,8 @@ name: TrinityCore 3.3.5 Linux CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
