@@ -20,8 +20,12 @@ jobs:
     timeout-minutes: 180
     env:
       APT_SNAPSHOT: 20261126T103300Z
-      CC: clang-18
-      CXX: clang++-18
+      CC: /usr/bin/clang-18
+      CXX: /usr/bin/clang++-18
+      CMAKE_BIN: /usr/bin/cmake
+      NINJA_BIN: /usr/bin/ninja
+      MYSQL_CONFIG_BIN: /usr/bin/mysql_config
+      PKG_CONFIG_BIN: /usr/bin/pkg-config
       BUILD_DIR: build-release
 
     steps:
@@ -64,21 +68,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          clang_version="$(clang++-18 --version | grep -Eo '18\.1\.8' | head -n 1)"
-          mysql_version="$(mysql_config --version)"
+          for tool in "$CC" "$CXX" "$CMAKE_BIN" "$NINJA_BIN" "$MYSQL_CONFIG_BIN" "$PKG_CONFIG_BIN"; do
+            test -x "$tool"
+          done
+          clang_version="$("$CXX" --version | grep -Eo '18\.1\.8' | head -n 1)"
+          mysql_version="$("$MYSQL_CONFIG_BIN" --version)"
+          cmake_version="$("$CMAKE_BIN" --version | awk 'NR == 1 {print $3}')"
+          ninja_version="$("$NINJA_BIN" --version)"
+          pkg_config_version="$("$PKG_CONFIG_BIN" --version)"
           clang_package="$(dpkg-query -W -f='${Version}' clang-18)"
           mysql_package="$(dpkg-query -W -f='${Version}' libmysqlclient24)"
           boost_package="$(dpkg-query -W -f='${Version}' libboost-filesystem1.83.0)"
           [[ "$clang_version" == "18.1.8" ]]
           [[ "$mysql_version" == "8.4.13" ]]
+          [[ "$cmake_version" == "4.2.3" ]]
+          [[ "$ninja_version" == "1.13.2" ]]
+          [[ "$pkg_config_version" == "2.5.1" ]]
           [[ "$clang_package" == "1:18.1.8-20ubuntu8" ]]
           [[ "$mysql_package" == "8.4.13-0ubuntu0.26.04.2" ]]
           [[ "$boost_package" == "1.83.0-5ubuntu5" ]]
           [[ "$(dpkg-query -W -f='${Version}' cmake)" == "4.2.3-2ubuntu2" ]]
           [[ "$(dpkg-query -W -f='${Version}' ninja-build)" == "1.13.2-1" ]]
           [[ "$(dpkg-query -W -f='${Version}' pkg-config)" == "2.5.1-4" ]]
-          printf 'APT snapshot: %s\nClang: %s (%s)\nMySQL client: %s (%s)\nBoost: %s\n' \
-            "$APT_SNAPSHOT" "$clang_version" "$clang_package" "$mysql_version" "$mysql_package" "$boost_package"
+          printf 'APT snapshot: %s\nClang: %s (%s)\nCMake: %s (%s)\nNinja: %s (%s)\nMySQL client: %s (%s)\nBoost: %s\n' \
+            "$APT_SNAPSHOT" "$clang_version" "$clang_package" "$cmake_version" "$CMAKE_BIN" "$ninja_version" "$NINJA_BIN" "$mysql_version" "$mysql_package" "$boost_package"
           test -e /usr/lib/x86_64-linux-gnu/libmysqlclient.so.24
           boost_version="${boost_package%%-*}"
           [[ "$boost_version" == "1.83.0" ]]
@@ -87,7 +100,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S . -B "$BUILD_DIR" -G Ninja \
+          export PATH="/usr/bin:/bin:$PATH"
+          "$CMAKE_BIN" -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_MAKE_PROGRAM="$NINJA_BIN" \
+            -DCMAKE_CXX_COMPILER="$CXX" \
+            -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG_BIN" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/trinitycore-install" \
@@ -102,9 +119,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build "$BUILD_DIR" --target authserver worldserver --parallel 2 \
+          "$CMAKE_BIN" --build "$BUILD_DIR" --target authserver worldserver --parallel 2 \
             2>&1 | tee "$RUNNER_TEMP/build-release.log"
-          cmake --install "$BUILD_DIR" 2>&1 | tee "$RUNNER_TEMP/install-release.log"
+          "$CMAKE_BIN" --install "$BUILD_DIR" 2>&1 | tee "$RUNNER_TEMP/install-release.log"
 
       - name: Assemble and inspect the relocatable release package
         id: package
@@ -143,11 +160,12 @@ jobs:
           source_commit="$(git rev-parse HEAD)"
           source_tag="${GITHUB_REF_NAME}"
           host_os="$(. /etc/os-release && printf '%s' "$PRETTY_NAME")"
-          clang_version="$(clang++-18 --version | grep -Eo '18\.1\.8' | head -n 1)"
-          mysql_version="$(mysql_config --version)"
-          cmake_version="$(cmake --version | head -n 1 | awk '{print $3}')"
-          ninja_version="$(ninja --version)"
-          pkg_config_version="$(pkg-config --version)"
+          clang_version="$("$CXX" --version | grep -Eo '18\.1\.8' | head -n 1)"
+          mysql_version="$("$MYSQL_CONFIG_BIN" --version)"
+          cmake_binary="$(readlink -f "$CMAKE_BIN")"
+          cmake_version="$("$CMAKE_BIN" --version | awk 'NR == 1 {print $3}')"
+          ninja_version="$("$NINJA_BIN" --version)"
+          pkg_config_version="$("$PKG_CONFIG_BIN" --version)"
           clang_package="$(dpkg-query -W -f='${Version}' clang-18)"
           mysql_package="$(dpkg-query -W -f='${Version}' libmysqlclient24)"
           boost_package="$(dpkg-query -W -f='${Version}' libboost-filesystem1.83.0)"
@@ -165,7 +183,7 @@ jobs:
           Build profile: Release; Clang $clang_version; dynamic scripts
           Build host: $host_os
           Ubuntu APT snapshot: $APT_SNAPSHOT
-          Build tools: CMake $cmake_version; Ninja $ninja_version; pkg-config $pkg_config_version
+          Build tools: CMake $cmake_version ($cmake_binary); Ninja $ninja_version ($NINJA_BIN); pkg-config $pkg_config_version ($PKG_CONFIG_BIN)
           Database client build: MySQL client $mysql_version; libmysqlclient.so.24
           Highlighted runtime packages: clang-18=$clang_package; libmysqlclient24=$mysql_package; Boost filesystem=$boost_package
           Pinned direct package versions:
@@ -181,9 +199,9 @@ jobs:
           tar -C "$PACKAGE_DIR" -czf "$RUNNER_TEMP/$archive" .
           (cd "$RUNNER_TEMP" && sha256sum "$archive" > "$archive.sha256")
           digest="$(sha256sum "$RUNNER_TEMP/$archive" | awk '{print $1}')"
-          python3 - "$RUNNER_TEMP/$archive.provenance.json" "$archive" "$digest" "$source_commit" "$source_tag" "$clang_version" "$mysql_version" "$boost_version" "$APT_SNAPSHOT" "$clang_package" "$mysql_package" "$boost_package" "$cmake_version" "$ninja_version" "$pkg_config_version" "$pinned_packages" <<'PY'
+          python3 - "$RUNNER_TEMP/$archive.provenance.json" "$archive" "$digest" "$source_commit" "$source_tag" "$clang_version" "$mysql_version" "$boost_version" "$APT_SNAPSHOT" "$clang_package" "$mysql_package" "$boost_package" "$cmake_binary" "$cmake_version" "$ninja_version" "$pkg_config_version" "$pinned_packages" <<'PY'
           import json, os, platform, sys
-          path, archive, digest, commit, tag, clang, mysql, boost, apt_snapshot, clang_pkg, mysql_pkg, boost_pkg, cmake, ninja, pkg_config, pinned_packages = sys.argv[1:]
+          path, archive, digest, commit, tag, clang, mysql, boost, apt_snapshot, clang_pkg, mysql_pkg, boost_pkg, cmake_binary, cmake, ninja, pkg_config, pinned_packages = sys.argv[1:]
           document = {
               "artifact": archive,
               "sha256": digest,
@@ -203,6 +221,7 @@ jobs:
                   "boost_runtime_abi": boost,
                   "boost_package": boost_pkg,
                   "cmake": cmake,
+                  "cmake_binary": cmake_binary,
                   "ninja": ninja,
                   "pkg_config": pkg_config,
                   "pinned_direct_packages": dict(line.split("=", 1) for line in pinned_packages.splitlines()),
