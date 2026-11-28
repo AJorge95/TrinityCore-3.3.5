@@ -12,7 +12,7 @@ Project workflows and release tooling are maintained in this repository and prop
 
 ## Windows, WSL2, and local release validation
 
-Codex Desktop on Windows edits one canonical project worktree in Ubuntu WSL2 ext4. Linux CMake/Ninja builds, CTest, and local server checks run in WSL2. Validate the exact immutable Release artifact with local WSL2 Authserver/Worldserver and the Windows build 12340 client. Record authentication, realm selection, world entry, gameplay, and persistence under docs/project/local-validation/.
+Codex Desktop on Windows edits one canonical project worktree in Ubuntu WSL2 ext4. Linux CMake/Ninja builds and CTest run in the development Ubuntu WSL2 distro. Validate the exact immutable Release artifact in a clean Ubuntu 26.04.1 WSL2 local server runtime with the Windows build 12340 client. Record authentication, realm selection, world entry, gameplay, and persistence under docs/project/local-validation/.
 
 There is no separate staging host or database tier in the current plan. Use local-only test databases; never use production data for tests. After local validation, require explicit owner authorization for the exact tag and package digest before deploying that same artifact to production. Do not synchronize source code directly to production.
 

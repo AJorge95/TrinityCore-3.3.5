@@ -7,7 +7,7 @@ Required exact fields for the production authorization workflow:
     LOCAL_VALIDATION: PENDING
     Release tag: <exact immutable release tag>
     Package SHA-256: <exact package digest>
-    Validation environment: Ubuntu WSL2 + Windows
+    Validation environment: Ubuntu 26.04.1 WSL2 + Windows
     Windows client build: 12340
     WSL server artifact: PENDING
     Authserver login: PENDING

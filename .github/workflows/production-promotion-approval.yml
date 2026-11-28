@@ -79,7 +79,7 @@ jobs:
           grep -Fxq "LOCAL_VALIDATION: PASS" "$RUNNER_TEMP/local-validation.md"
           grep -Fxq "Release tag: $RELEASE_TAG" "$RUNNER_TEMP/local-validation.md"
           grep -Fxq "Package SHA-256: $PACKAGE_SHA256" "$RUNNER_TEMP/local-validation.md"
-          grep -Fxq "Validation environment: Ubuntu WSL2 + Windows" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Validation environment: Ubuntu 26.04.1 WSL2 + Windows" "$RUNNER_TEMP/local-validation.md"
           grep -Fxq "Windows client build: 12340" "$RUNNER_TEMP/local-validation.md"
           grep -Fxq "WSL server artifact: PASS" "$RUNNER_TEMP/local-validation.md"
           grep -Fxq "Authserver login: PASS" "$RUNNER_TEMP/local-validation.md"

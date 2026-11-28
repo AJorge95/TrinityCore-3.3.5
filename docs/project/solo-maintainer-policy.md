@@ -5,7 +5,7 @@
 - Review the complete diff and wait for all hosted Linux, Windows, and macOS checks before merge. There is one maintainer; a second reviewer is not required.
 - Keep production secrets, configuration, and database state out of the repository, CI runners, and local test configs.
 - After GitHub publishes an immutable Release, download the exact artifact to the WSL2 test environment and record its digest.
-- Test that exact package with local WSL2 Authserver/Worldserver and the Windows WoW 3.3.5a build 12340 client. Use local-only test databases.
+- Test that exact package with Authserver/Worldserver in a dedicated Ubuntu 26.04.1 WSL2 local runtime and the Windows WoW 3.3.5a build 12340 client. Use local-only test databases.
 - Record auth login, realm selection, Worldserver session, gameplay smoke, and logout/relogin persistence in docs/project/local-validation/. A green CI build is not local client validation or production acceptance.
 - Require explicit owner authorization for the exact immutable tag and package digest after the local validation record is committed and all evidence is reviewed.
 - Production remains split: Authserver and MySQL/Auth on .100; Worldserver and MySQL/Characters/World on .101. Push the same verified package digest to both hosts only through a separate owner-authorized deployment operation, never from an ordinary CI run.

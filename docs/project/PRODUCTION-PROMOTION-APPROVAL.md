@@ -17,7 +17,7 @@ The record must contain these exact lines:
     LOCAL_VALIDATION: PASS
     Release tag: <exact immutable release tag>
     Package SHA-256: <exact package digest>
-    Validation environment: Ubuntu WSL2 + Windows
+    Validation environment: Ubuntu 26.04.1 WSL2 + Windows
     Windows client build: 12340
     WSL server artifact: PASS
     Authserver login: PASS
@@ -26,7 +26,7 @@ The record must contain these exact lines:
     Gameplay smoke: PASS
     Logout/relogin persistence: PASS
 
-Test the exact Release artifact in the local WSL2 server runtime and connect from the Windows 3.3.5a build 12340 client. Record evidence for server startup, authentication, realm selection, entering the world, representative gameplay, and persistence after logout/relogin. Keep logs sanitized and omit secrets or client-derived data.
+Test the exact Release artifact in the local Ubuntu 26.04.1 WSL2 server runtime and connect from the Windows 3.3.5a build 12340 client. Record evidence for server startup, authentication, realm selection, entering the world, representative gameplay, and persistence after logout/relogin. Keep logs sanitized and omit secrets or client-derived data.
 
 ## Request the authorization receipt
 
