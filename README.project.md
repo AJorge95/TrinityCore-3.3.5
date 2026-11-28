@@ -1,6 +1,6 @@
 # TrinityCore 3.3.5 project
 
-A solo-maintained project repository for the TrinityCore 3.3.5 server build, CI, and controlled releases. Repository visibility is public for owner-authorized testing.
+A solo-maintained TrinityCore 3.3.5 server project with a controlled CI, immutable Release, local validation, and owner-authorized production deployment path.
 
 ## Source baseline
 
@@ -8,22 +8,28 @@ A solo-maintained project repository for the TrinityCore 3.3.5 server build, CI,
 - Production source pin: bc47ca8fe5b4a8f20272bbc0847217653cc95dc9
 - Client target: WoW 3.3.5a, build 12340
 
-Project-specific workflows and release tooling are maintained in this repository and proposed through pull requests. The project policy and PR checklist are in docs/project/solo-maintainer-policy.md and .github/PULL_REQUEST_TEMPLATE.md.
+Project workflows and release tooling are maintained in this repository and proposed through pull requests. The solo-owner review policy is in docs/project/solo-maintainer-policy.md.
 
-## Windows and WSL2 development
+## Windows, WSL2, and local release validation
 
-Codex Desktop runs on Windows, outside WSL, as the authoring/control surface. The intended project checkout is one dedicated worktree in Ubuntu WSL2's ext4 filesystem, exposed to Windows through WSL filesystem integration. CMake/Ninja builds, CTest, and local server checks run in WSL2. Keep the upstream-only checkout separate. The Eurybia folder is the project design/docs/tools/proofs/artifacts folder, not a second source copy.
+Codex Desktop on Windows edits one canonical project worktree in Ubuntu WSL2 ext4. Linux CMake/Ninja builds and CTest run in the development Ubuntu WSL2 distro. Validate the exact immutable Release artifact in a clean Ubuntu 26.04.1 WSL2 local server runtime with the Windows build 12340 client. Record authentication, realm selection, world entry, gameplay, and persistence under docs/project/local-validation/.
 
-Source changes go through GitHub PRs. GitHub Actions creates the release artifact; after isolated staging and explicit owner authorization, deploy the same verified digest to the Authserver and Worldserver production hosts. Do not synchronize source code directly to production.
+There is no separate staging host or database tier in the current plan. Use local-only test databases; never use production data for tests. After local validation, require explicit owner authorization for the exact tag and package digest before deploying that same artifact to production. Do not synchronize source code directly to production.
 
 ## Solo-maintainer review
 
-Pull requests are retained for change history and CI. No second-person approval is required; the owner reviews and may merge their own PR after all applicable checks pass. Classic branch protection is active on main: it requires a PR and six strict Linux/Windows/macOS check contexts, has zero required approvals, applies to administrators, and blocks force pushes and branch deletion. GitHub enforces the PR and CI gates; owner diff review is an operating policy because approvals are not required. Check PR #1 for live run state before merge.
+Pull requests are the change history and CI entry point. No second-person approval is required; the owner reviews and may merge after applicable checks pass. Classic branch protection is active on main and requires a pull request and passing checks. See the repository settings and current PR checks for live enforcement state.
+
+## Production topology
+
+- Authserver and MySQL/Auth: 192.168.1.100
+- Worldserver and MySQL/Characters/World: 192.168.1.101
+- Production rollout remains a separate owner-authorized operation. CI and the authorization workflow do not contact production.
 
 ## Data boundary
 
-Do not commit production credentials, database dumps, live database state, or client-derived DBC/map/vmap/mmap data. These remain outside source control and release packages.
+Do not commit production credentials, private keys, database dumps, live database state, or client-derived DBC/map/vmap/mmap data. Keep local test state outside source control and Release packages.
 
 ## Build and release state
 
-Linux CI, Windows x64 CI, macOS arm64 CI, and the Ubuntu 26.04 Release publisher are active; all r5 tag checks passed. GitHub Release r5 is published with an archive, SHA-256 sidecar, and provenance, but GitHub currently reports it as mutable. Phase 5 still requires an immutable Release, a genuinely isolated staging environment, staging acceptance, and a separately authorized production promotion. No production deployment is triggered by a PR or ordinary build.
+Immutable Release r6 is tag trinitycore-3.3.5-project-snapshot-bc47ca8-r6-20261127, package SHA-256 51a0676c906d294bdba675e96527e38029a1bfcc553d2552874c834a5b2027ab. PR #4 merged to main as f6198bc75555706751985f0c1997fcaac687e0d0 after all seven PR checks passed. All three post-merge workflows (Linux, Windows, macOS) passed. The owner authorization gate now requires committed local WSL2/Windows validation evidence; that evidence has not yet been recorded for a specific Release digest. No production deployment occurred.
