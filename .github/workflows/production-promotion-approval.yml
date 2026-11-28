@@ -11,8 +11,8 @@ on:
         description: Exact SHA-256 digest of the Ubuntu 26.04 package
         type: string
         required: true
-      staging_proof_path:
-        description: Committed staging acceptance record under docs/project/staging-acceptance/
+      local_validation_proof_path:
+        description: Committed local validation acceptance record under docs/project/local-validation/
         type: string
         required: true
       confirmation:
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   preflight:
-    name: Verify staged immutable release
+    name: Verify local-validation release artifact
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -34,7 +34,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify owner request, immutable release, digest, and staging evidence
+      - name: Verify owner request, immutable release, digest, and local validation evidence
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -45,12 +45,12 @@ jobs:
 
           RELEASE_TAG="$(jq -r '.inputs.release_tag // empty' "$GITHUB_EVENT_PATH")"
           PACKAGE_SHA256="$(jq -r '.inputs.package_sha256 // empty' "$GITHUB_EVENT_PATH")"
-          STAGING_PROOF_PATH="$(jq -r '.inputs.staging_proof_path // empty' "$GITHUB_EVENT_PATH")"
+          LOCAL_VALIDATION_PROOF_PATH="$(jq -r '.inputs.local_validation_proof_path // empty' "$GITHUB_EVENT_PATH")"
           CONFIRMATION="$(jq -r '.inputs.confirmation // empty' "$GITHUB_EVENT_PATH")"
 
           [[ "$RELEASE_TAG" =~ ^trinitycore-3\.3\.5-project-snapshot-[a-z0-9-]+$ ]] || { echo "Release tag format is invalid." >&2; exit 1; }
           [[ "$PACKAGE_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "Package SHA-256 must be 64 lowercase hexadecimal characters." >&2; exit 1; }
-          [[ "$STAGING_PROOF_PATH" =~ ^docs/project/staging-acceptance/[A-Za-z0-9][A-Za-z0-9._-]*\.md$ ]] || { echo "Staging proof must be a Markdown file under docs/project/staging-acceptance/." >&2; exit 1; }
+          [[ "$LOCAL_VALIDATION_PROOF_PATH" =~ ^docs/project/local-validation/[A-Za-z0-9][A-Za-z0-9._-]*\.md$ ]] || { echo "local validation proof must be a Markdown file under docs/project/local-validation/." >&2; exit 1; }
           [[ "$CONFIRMATION" == "AUTHORIZE $RELEASE_TAG $PACKAGE_SHA256" ]] || { echo "The typed owner confirmation does not match the selected release and digest." >&2; exit 1; }
 
           # Authorization is the owner's explicit workflow_dispatch plus the
@@ -75,11 +75,19 @@ jobs:
           PROVENANCE_NAME="${ARCHIVE_NAME}.provenance.json"
           jq -e --arg sidecar "$SIDECAR_NAME" --arg provenance "$PROVENANCE_NAME" '[.assets[].name] as $names | ($names | index($sidecar)) != null and ($names | index($provenance)) != null' "$RELEASE_JSON" >/dev/null
 
-          git show "$GITHUB_SHA:$STAGING_PROOF_PATH" > "$RUNNER_TEMP/staging-acceptance.md"
-          grep -Fxq "STAGING_ACCEPTANCE: PASS" "$RUNNER_TEMP/staging-acceptance.md"
-          grep -Fxq "Release tag: $RELEASE_TAG" "$RUNNER_TEMP/staging-acceptance.md"
-          grep -Fxq "Package SHA-256: $PACKAGE_SHA256" "$RUNNER_TEMP/staging-acceptance.md"
-          STAGING_PROOF_SHA256="$(sha256sum "$RUNNER_TEMP/staging-acceptance.md" | awk '{print $1}')"
+          git show "$GITHUB_SHA:$LOCAL_VALIDATION_PROOF_PATH" > "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "LOCAL_VALIDATION: PASS" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Release tag: $RELEASE_TAG" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Package SHA-256: $PACKAGE_SHA256" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Validation environment: Ubuntu WSL2 + Windows" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Windows client build: 12340" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "WSL server artifact: PASS" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Authserver login: PASS" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Realm selection: PASS" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Worldserver session: PASS" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Gameplay smoke: PASS" "$RUNNER_TEMP/local-validation.md"
+          grep -Fxq "Logout/relogin persistence: PASS" "$RUNNER_TEMP/local-validation.md"
+          LOCAL_VALIDATION_PROOF_SHA256="$(sha256sum "$RUNNER_TEMP/local-validation.md" | awk '{print $1}')"
 
           mkdir -p "$RUNNER_TEMP/release-assets"
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release-assets"
@@ -95,8 +103,8 @@ jobs:
             echo "- Source commit: $SOURCE_COMMIT"
             echo "- Immutable release: confirmed by GitHub API"
             echo "- Package SHA-256: $PACKAGE_SHA256"
-            echo "- Staging acceptance: $STAGING_PROOF_PATH"
-            echo "- Staging proof SHA-256: $STAGING_PROOF_SHA256"
+            echo "- Local WSL2/Windows validation: $LOCAL_VALIDATION_PROOF_PATH"
+            echo "- Local validation proof SHA-256: $LOCAL_VALIDATION_PROOF_SHA256"
             echo "- Owner authorization: owner-initiated dispatch and exact typed confirmation verified"
             echo
             echo "This workflow only requests an owner approval receipt. It does not contact or change production servers."
@@ -119,13 +127,13 @@ jobs:
           set -euo pipefail
           RELEASE_TAG="$(jq -r '.inputs.release_tag' "$GITHUB_EVENT_PATH")"
           PACKAGE_SHA256="$(jq -r '.inputs.package_sha256' "$GITHUB_EVENT_PATH")"
-          STAGING_PROOF_PATH="$(jq -r '.inputs.staging_proof_path' "$GITHUB_EVENT_PATH")"
+          LOCAL_VALIDATION_PROOF_PATH="$(jq -r '.inputs.local_validation_proof_path' "$GITHUB_EVENT_PATH")"
           CONFIRMATION="$(jq -r '.inputs.confirmation' "$GITHUB_EVENT_PATH")"
-          git show "$GITHUB_SHA:$STAGING_PROOF_PATH" > "$RUNNER_TEMP/staging-acceptance.md"
-          STAGING_PROOF_SHA256="$(sha256sum "$RUNNER_TEMP/staging-acceptance.md" | awk '{print $1}')"
+          git show "$GITHUB_SHA:$LOCAL_VALIDATION_PROOF_PATH" > "$RUNNER_TEMP/local-validation.md"
+          LOCAL_VALIDATION_PROOF_SHA256="$(sha256sum "$RUNNER_TEMP/local-validation.md" | awk '{print $1}')"
           git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           SOURCE_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
-          export RELEASE_TAG PACKAGE_SHA256 STAGING_PROOF_PATH STAGING_PROOF_SHA256 SOURCE_COMMIT CONFIRMATION
+          export RELEASE_TAG PACKAGE_SHA256 LOCAL_VALIDATION_PROOF_PATH LOCAL_VALIDATION_PROOF_SHA256 SOURCE_COMMIT CONFIRMATION
           export REQUESTED_BY="$GITHUB_ACTOR" WORKFLOW_RUN_ID="$GITHUB_RUN_ID"
           export WORKFLOW_RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           export REQUESTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -137,8 +145,8 @@ jobs:
               "release_tag": os.environ["RELEASE_TAG"],
               "source_commit": os.environ["SOURCE_COMMIT"],
               "package_sha256": os.environ["PACKAGE_SHA256"],
-              "staging_proof_path": os.environ["STAGING_PROOF_PATH"],
-              "staging_proof_sha256": os.environ["STAGING_PROOF_SHA256"],
+              "local_validation_proof_path": os.environ["LOCAL_VALIDATION_PROOF_PATH"],
+              "local_validation_proof_sha256": os.environ["LOCAL_VALIDATION_PROOF_SHA256"],
               "requested_by": os.environ["REQUESTED_BY"],
               "requested_at_utc": os.environ["REQUESTED_AT_UTC"],
               "workflow_run_id": os.environ["WORKFLOW_RUN_ID"],
@@ -153,7 +161,7 @@ jobs:
               output.write("## Owner approval recorded\n\n")
               output.write(f"- Release: {receipt['release_tag']}\n")
               output.write(f"- Package SHA-256: {receipt['package_sha256']}\n")
-              output.write(f"- Staging evidence: {receipt['staging_proof_path']} (SHA-256 {receipt['staging_proof_sha256']})\n")
+              output.write(f"- Local validation evidence: {receipt['local_validation_proof_path']} (SHA-256 {receipt['local_validation_proof_sha256']})\n")
               output.write(f"- Workflow run: {receipt['workflow_run_url']}\n")
               output.write("- Production deployment performed: no\n")
           PY
